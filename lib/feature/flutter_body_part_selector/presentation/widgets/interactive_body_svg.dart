@@ -50,6 +50,18 @@ class InteractiveBodySvg extends StatefulWidget {
   final String? Function(Muscle muscle)? semanticLabelBuilder;
   final bool isInitialSelection;
 
+  /// Whether to enable 2-finger zoom and pan.
+  final bool enableZoom;
+
+  /// Optional controller for the [InteractiveViewer].
+  final TransformationController? transformationController;
+
+  /// Minimum scale for zoom.
+  final double minScale;
+
+  /// Maximum scale for zoom.
+  final double maxScale;
+
   const InteractiveBodySvg({
     super.key,
     this.asset,
@@ -74,6 +86,10 @@ class InteractiveBodySvg extends StatefulWidget {
     this.tooltipBuilder,
     this.semanticLabelBuilder,
     this.isInitialSelection = false,
+    this.enableZoom = false,
+    this.transformationController,
+    this.minScale = 1.0,
+    this.maxScale = 5.0,
   });
 
   String get _effectiveAsset {
@@ -115,17 +131,34 @@ class _InteractiveBodySvgState extends State<InteractiveBodySvg> {
   Set<Muscle> get _selectedMuscles => widget.selectedMuscles ?? {};
   Set<Muscle> get _disabledMuscles => widget.disabledMuscles ?? {};
 
+  late TransformationController _transformationController;
+
   @override
   void initState() {
     super.initState();
+    _transformationController = widget.transformationController ?? TransformationController();
     _loadError = null;
     _loadAndModifySvg();
     _scheduleWidgetReady();
   }
 
   @override
+  void dispose() {
+    if (widget.transformationController == null) {
+      _transformationController.dispose();
+    }
+    super.dispose();
+  }
+
+  @override
   void didUpdateWidget(InteractiveBodySvg oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.transformationController != widget.transformationController) {
+      if (oldWidget.transformationController == null) {
+        _transformationController.dispose();
+      }
+      _transformationController = widget.transformationController ?? TransformationController();
+    }
     if (_shouldReload(oldWidget)) {
       _updatePreviousSelections();
       if (!_isProcessing && mounted) {
@@ -780,6 +813,15 @@ class _InteractiveBodySvgState extends State<InteractiveBodySvg> {
       svgWidget = Semantics(
         label: semanticLabel,
         button: widget.enableSelection,
+        child: svgWidget,
+      );
+    }
+
+    if (widget.enableZoom) {
+      svgWidget = InteractiveViewer(
+        transformationController: _transformationController,
+        minScale: widget.minScale,
+        maxScale: widget.maxScale,
         child: svgWidget,
       );
     }

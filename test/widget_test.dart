@@ -125,4 +125,34 @@ void main() {
     
     controller.dispose();
   });
+
+  testWidgets('InteractiveBodySvg - zoom support', (WidgetTester tester) async {
+    final transformationController = TransformationController();
+    
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: InteractiveBodySvg(
+            enableZoom: true,
+            transformationController: transformationController,
+          ),
+        ),
+      ),
+    );
+
+    await tester.pump(const Duration(milliseconds: 500));
+
+    // Verify InteractiveViewer is present
+    expect(find.byType(InteractiveViewer), findsOneWidget);
+
+    // Test zooming programmatically
+    final initialMatrix = transformationController.value.clone();
+    transformationController.value = Matrix4.diagonal3Values(2.0, 2.0, 1.0);
+    await tester.pump();
+
+    expect(transformationController.value != initialMatrix, true);
+    expect(transformationController.value.getMaxScaleOnAxis(), 2.0);
+
+    transformationController.dispose();
+  });
 }

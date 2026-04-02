@@ -1,3 +1,10 @@
+## 1.3.0
+
+* **NEW**: Added 2-finger zoom and pan capabilities to `InteractiveBodySvg`
+* **NEW**: Added `enableZoom`, `transformationController`, `minScale`, and `maxScale` parameters to `InteractiveBodySvg`
+* **IMPROVED**: Updated example app with zoom in/out buttons for better accessibility
+* **IMPROVED**: Fixed deprecated member uses in example app
+
 ## 1.2.1
 
 * **BREAKING**: Removed `InteractiveBodyWidget` - package now provides only `InteractiveBodySvg` widget without Scaffold/AppBar
