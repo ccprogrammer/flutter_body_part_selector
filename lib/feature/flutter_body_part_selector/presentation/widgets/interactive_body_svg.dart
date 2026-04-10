@@ -530,33 +530,31 @@ class _InteractiveBodySvgState extends State<InteractiveBodySvg> {
       return null;
     }
 
-    // Apply inverse transformation if zoom is enabled
-    Offset transformedPoint = localPosition;
-    if (widget.enableZoom) {
-      final Matrix4 transform = _transformationController.value;
-      try {
-        final Matrix4 inverted = Matrix4.inverted(transform);
-        transformedPoint = MatrixUtils.transformPoint(inverted, localPosition);
-      } catch (e) {
-        // Fallback if matrix is not invertible
-      }
+    Rect renderedRect;
+    if (widget.enableZoom && _isWidgetReady && !_isLoading && _svgSize != null) {
+      // When zoom is enabled, the GestureDetector is a child of the InteractiveViewer.
+      // The localPosition is already in the child's coordinate space.
+      // We need to calculate the fitted size to know the content's bounds.
+      final fittedSize = _calculateFittedSize(
+        renderBox.size,
+        _svgSize!,
+        widget.fit,
+      );
+      renderedRect = Rect.fromLTWH(0, 0, fittedSize.width, fittedSize.height);
+    } else {
+      renderedRect = _getRenderedRect(
+        renderBox.size,
+        _svgSize!,
+        widget.fit,
+        widget.alignment,
+      );
     }
 
-    final renderedRect = _getRenderedRect(
-      renderBox.size,
-      _svgSize!,
-      widget.fit,
-      widget.alignment,
-    );
+    if (!renderedRect.contains(localPosition)) {
+      return null;
+    }
 
-    // If zoom is enabled and we're using our new layout, 
-    // the transformedPoint is already in the child's coordinate system,
-    // which starts at (0,0) relative to the content.
-    // However, _transformToSvgCoordinates expects coordinates relative to the full widget.
-    // If we use constrained: false, the child is the content itself.
-    
-    // For now, let's keep the logic consistent with how we transform it.
-    final tapPoint = _transformToSvgCoordinates(transformedPoint, renderedRect);
+    final tapPoint = _transformToSvgCoordinates(localPosition, renderedRect);
     final tappedMuscleId = _findTappedMuscleId(tapPoint);
 
     return tappedMuscleId != null
