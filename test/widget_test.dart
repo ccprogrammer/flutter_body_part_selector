@@ -140,7 +140,8 @@ void main() {
       ),
     );
 
-    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pump(const Duration(seconds: 1));
 
     // Verify InteractiveViewer is present
     expect(find.byType(InteractiveViewer), findsOneWidget);

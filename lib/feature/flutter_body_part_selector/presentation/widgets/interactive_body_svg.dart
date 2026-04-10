@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_svg/flutter_svg.dart';
@@ -529,6 +530,18 @@ class _InteractiveBodySvgState extends State<InteractiveBodySvg> {
       return null;
     }
 
+    // Apply inverse transformation if zoom is enabled
+    Offset transformedPoint = localPosition;
+    if (widget.enableZoom) {
+      final Matrix4 transform = _transformationController.value;
+      try {
+        final Matrix4 inverted = Matrix4.inverted(transform);
+        transformedPoint = MatrixUtils.transformPoint(inverted, localPosition);
+      } catch (e) {
+        // Fallback if matrix is not invertible
+      }
+    }
+
     final renderedRect = _getRenderedRect(
       renderBox.size,
       _svgSize!,
@@ -536,11 +549,14 @@ class _InteractiveBodySvgState extends State<InteractiveBodySvg> {
       widget.alignment,
     );
 
-    if (!renderedRect.contains(localPosition)) {
-      return null;
-    }
-
-    final tapPoint = _transformToSvgCoordinates(localPosition, renderedRect);
+    // If zoom is enabled and we're using our new layout, 
+    // the transformedPoint is already in the child's coordinate system,
+    // which starts at (0,0) relative to the content.
+    // However, _transformToSvgCoordinates expects coordinates relative to the full widget.
+    // If we use constrained: false, the child is the content itself.
+    
+    // For now, let's keep the logic consistent with how we transform it.
+    final tapPoint = _transformToSvgCoordinates(transformedPoint, renderedRect);
     final tappedMuscleId = _findTappedMuscleId(tapPoint);
 
     return tappedMuscleId != null
@@ -549,8 +565,21 @@ class _InteractiveBodySvgState extends State<InteractiveBodySvg> {
   }
 
   Offset _transformToSvgCoordinates(Offset localPosition, Rect renderedRect) {
-    final relativeX = localPosition.dx - renderedRect.left;
-    final relativeY = localPosition.dy - renderedRect.top;
+    // If we're using constrained: false, the renderedRect's origin is actually
+    // handled by the InteractiveViewer's transformation.
+    // The point we get here (localPosition) is already in the child's space.
+    
+    double relativeX, relativeY;
+    
+    if (widget.enableZoom) {
+      // In our new zoom layout, the child of InteractiveViewer is exactly the fitted size,
+      // and its top-left is (0,0) in its own coordinate system.
+      relativeX = localPosition.dx;
+      relativeY = localPosition.dy;
+    } else {
+      relativeX = localPosition.dx - renderedRect.left;
+      relativeY = localPosition.dy - renderedRect.top;
+    }
 
     final scaleX = _svgSize!.width / renderedRect.width;
     final scaleY = _svgSize!.height / renderedRect.height;
@@ -789,6 +818,82 @@ class _InteractiveBodySvgState extends State<InteractiveBodySvg> {
 
   @override
   Widget build(BuildContext context) {
+    if (widget.enableZoom) {
+      if (_svgSize == null || _modifiedSvg == null || _isLoading || !_isWidgetReady) {
+        return InteractiveViewer(
+          transformationController: _transformationController,
+          minScale: widget.minScale,
+          maxScale: widget.maxScale,
+          child: _buildSvgWidget(),
+        );
+      }
+
+      return LayoutBuilder(
+        builder: (context, constraints) {
+          final viewportSize = Size(constraints.maxWidth, constraints.maxHeight);
+          
+          final fittedSize = _calculateFittedSize(
+            viewportSize,
+            _svgSize!,
+            widget.fit,
+          );
+
+          // Calculate initial transformation to center the content
+          final initialScale = 1.0;
+          final initialX = (viewportSize.width - fittedSize.width) / 2;
+          final initialY = (viewportSize.height - fittedSize.height) / 2;
+
+          // If the transformation controller is new (identity), set the initial centering
+          if (_transformationController.value.isIdentity()) {
+            _transformationController.value = Matrix4.identity()
+              ..translate(initialX, initialY)
+              ..scale(initialScale);
+          }
+
+          // Use a boundary margin that allows the fitted content to be panned 
+          // to the edges of the viewport.
+          final horizontalMargin = math.max(0.0, (viewportSize.width - fittedSize.width) / 2);
+          final verticalMargin = math.max(0.0, (viewportSize.height - fittedSize.height) / 2);
+
+          Widget svgWidget = _buildSvgWidget(
+            width: fittedSize.width,
+            height: fittedSize.height,
+            fit: BoxFit.fill,
+          );
+
+          if (widget.enableSelection) {
+            svgWidget = GestureDetector(
+              behavior: widget.hitTestBehavior,
+              onTapDown: _handleTap,
+              onLongPressStart: _handleLongPress,
+              child: svgWidget,
+            );
+          }
+
+          final semanticLabel = _buildSemanticLabel();
+          if (semanticLabel != null) {
+            svgWidget = Semantics(
+              label: semanticLabel,
+              button: widget.enableSelection,
+              child: svgWidget,
+            );
+          }
+
+          return InteractiveViewer(
+            transformationController: _transformationController,
+            minScale: widget.minScale,
+            maxScale: widget.maxScale,
+            constrained: false,
+            boundaryMargin: EdgeInsets.symmetric(
+              horizontal: horizontalMargin,
+              vertical: verticalMargin,
+            ),
+            child: svgWidget,
+          );
+        },
+      );
+    }
+
     Widget svgWidget = _buildSvgWidget();
     
     if (widget.width != null || widget.height != null) {
@@ -817,19 +922,10 @@ class _InteractiveBodySvgState extends State<InteractiveBodySvg> {
       );
     }
 
-    if (widget.enableZoom) {
-      svgWidget = InteractiveViewer(
-        transformationController: _transformationController,
-        minScale: widget.minScale,
-        maxScale: widget.maxScale,
-        child: svgWidget,
-      );
-    }
-
     return svgWidget;
   }
 
-  Widget _buildSvgWidget() {
+  Widget _buildSvgWidget({double? width, double? height, BoxFit? fit}) {
     if (_loadError != null && !_isLoading) {
       return Center(
         child: Column(
@@ -879,10 +975,10 @@ class _InteractiveBodySvgState extends State<InteractiveBodySvg> {
             
             return SvgPicture.string(
               _modifiedSvg!,
-              fit: widget.fit,
+              fit: fit ?? widget.fit,
               alignment: widget.alignment,
-              width: widget.width,
-              height: widget.height,
+              width: width ?? widget.width,
+              height: height ?? widget.height,
             );
           } catch (e) {
             return Center(
